@@ -18,11 +18,11 @@ import {
   Clock,
   UserCheck,
   Building2,
-  Receipt
+  Wrench
 } from 'lucide-react';
 import SignInPage from './components/SignInPage';
 
-const STORAGE_KEY = 'retail_returns_warranty_agent_user_v1';
+const STORAGE_KEY = 'retail_returns_warranty_agent_user_v2';
 
 export default function App() {
   const [user, setUser] = useState(() => {
@@ -34,35 +34,35 @@ export default function App() {
     }
   });
 
-  const [activeTab, setActiveTab] = useState('queue'); // 'queue' | 'workbench' | 'copilot' | 'slip'
+  const [activeTab, setActiveTab] = useState('queue'); // 'queue' | 'check' | 'assistant' | 'slip'
   const [returnsList, setReturnsList] = useState([]);
   const [kpis, setKpis] = useState(null);
   const [selectedRetId, setSelectedRetId] = useState('RET-2026-8410');
   const [loading, setLoading] = useState(false);
-  const [authBanner, setAuthBanner] = useState('');
-  const [inspectorNotes, setInspectorNotes] = useState('');
+  const [confirmBanner, setConfirmBanner] = useState('');
+  const [supervisorNotes, setSupervisorNotes] = useState('');
 
-  // Simulator state in Tab 2
+  // Quick Counter Check Simulator in Tab 2
   const [simForm, setSimForm] = useState({
-    product_name: 'Samsung 65" QLED 4K Smart TV',
+    product_name: 'Samsung 65-Inch 4K Smart TV',
     category: 'Consumer Electronics',
     supplier_name: 'Samsung Electronics East Africa',
     retail_price_kes: 145000,
     days_since_purchase: 8,
     receipt_serial: 'SAM-Q65-90012',
     physical_serial: 'SAM-Q65-90012',
-    customer_returns_60d: 0,
-    tamper_or_swap_detected: false,
+    customer_physical_damage: false,
     genuine_defect_verified: true,
+    fault_summary: 'Screen does not power on out of the box (Factory Fault)',
   });
   const [simResult, setSimResult] = useState(null);
 
-  // AI Co-Pilot state in Tab 3
+  // AI Assistant state in Tab 3
   const [chatMessages, setChatMessages] = useState([
     {
       role: 'assistant',
       model: 'gemini-2.5-flash',
-      text: 'Welcome to the Returns, Warranty & Supplier RTV Co-Pilot. Ask me to audit any return claim, verify serial-swap fraud risk, or calculate upstream vendor RTV chargeback recovery.',
+      text: 'Welcome to the Returns & Warranty AI Assistant. Select any customer return and ask me to explain the receipt check, store return window, 12-month warranty coverage, or the recommended counter decision.',
     },
   ]);
   const [chatInput, setChatInput] = useState('');
@@ -115,18 +115,18 @@ export default function App() {
   const selectedClaim =
     returnsList.find((r) => r.ret_id === selectedRetId) || returnsList[0] || null;
 
-  const handleAuthorizeDisposition = async () => {
+  const handleConfirmDecision = async () => {
     if (!selectedClaim) return;
-    setAuthBanner('');
+    setConfirmBanner('');
     try {
       const res = await fetch(`/api/returns/${selectedClaim.ret_id}/authorize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           authorized_by: `${user.name} (${user.email})`,
-          inspector_notes:
-            inspectorNotes.trim() ||
-            `Disposition authorized by ${user.name}. Upstream RTV Reference ${selectedClaim.rtv_claim_number} locked.`,
+          supervisor_notes:
+            supervisorNotes.trim() ||
+            `Confirmed by ${user.name}: ${selectedClaim.decision_label} (Slip ${selectedClaim.approval_slip_no}).`,
         }),
       });
       const data = await res.json();
@@ -135,12 +135,12 @@ export default function App() {
           prev.map((item) => (item.ret_id === data.claim.ret_id ? data.claim : item))
         );
         if (data.kpis) setKpis(data.kpis);
-        setAuthBanner(
-          `Authorized ${data.claim.ret_id}: ${data.claim.disposition_label} • RTV Ref: ${data.claim.rtv_claim_number}`
+        setConfirmBanner(
+          `Confirmed ${data.claim.ret_id}: ${data.claim.decision_label} • Slip #${data.claim.approval_slip_no}`
         );
       }
     } catch (err) {
-      console.error('Authorization error:', err);
+      console.error('Confirmation error:', err);
     }
   };
 
@@ -154,7 +154,7 @@ export default function App() {
           ...simForm,
           retail_price_kes: Number(simForm.retail_price_kes),
           days_since_purchase: Number(simForm.days_since_purchase),
-          customer_returns_60d: Number(simForm.customer_returns_60d),
+          genuine_defect_verified: !simForm.customer_physical_damage,
         }),
       });
       const data = await res.json();
@@ -166,7 +166,7 @@ export default function App() {
     }
   };
 
-  const handleAskCopilot = async (promptText) => {
+  const handleAskAssistant = async (promptText) => {
     const question = (promptText || chatInput).trim();
     if (!question) return;
     setChatInput('');
@@ -190,13 +190,13 @@ export default function App() {
           text: data.answer || 'No response generated.',
         },
       ]);
-    } catch (err) {
+    } catch {
       setChatMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          model: 'fallback',
-          text: 'Unable to reach AI Co-Pilot endpoint. Please try again.',
+          model: 'store-warranty-verifier',
+          text: 'Unable to reach the Returns & Warranty AI Assistant right now. Please try again.',
         },
       ]);
     } finally {
@@ -204,28 +204,28 @@ export default function App() {
     }
   };
 
-  const getDispositionBadge = (claim) => {
+  const getDecisionBadge = (claim) => {
     if (!claim) return null;
-    if (claim.recommended_disposition === 'REJECT_FRAUD_SERIAL_TAMPER') {
+    if (claim.decision_code === 'APPROVE_REFUND_OR_EXCHANGE') {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-          <XCircle className="w-3.5 h-3.5" />
-          Reject Refund (Fraud / Tamper Alert)
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+          <CheckCircle2 className="w-3.5 h-3.5" />
+          Approve Refund or Exchange
         </span>
       );
     }
-    if (claim.recommended_disposition === 'ROUTE_AUTHORIZED_WARRANTY_REPAIR') {
+    if (claim.decision_code === 'SEND_FOR_WARRANTY_REPAIR') {
       return (
         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
-          <AlertTriangle className="w-3.5 h-3.5" />
-          Out-of-Window — Route Vendor Repair
+          <Wrench className="w-3.5 h-3.5" />
+          Send for Manufacturer Warranty Repair
         </span>
       );
     }
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-        <CheckCircle2 className="w-3.5 h-3.5" />
-        Approve + 100% Vendor RTV Recovery
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+        <XCircle className="w-3.5 h-3.5" />
+        {claim.decision_label}
       </span>
     );
   };
@@ -242,14 +242,14 @@ export default function App() {
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200">
-                  Agent #11 • Retail &amp; Distribution
+                  Agent #11 • Store Customer Returns
                 </span>
                 <span className="text-xs text-slate-500">
-                  POS Serial Verification • Abuse Scoring • Vendor RTV Chargeback
+                  Receipt Match • Store Return Days • 12-Month Warranty Check
                 </span>
               </div>
               <h1 className="text-base sm:text-lg font-bold text-slate-900">
-                Multimodal Customer Return, Warranty &amp; Refund Abuse Triage Agent
+                Customer Return &amp; Warranty Verification Agent
               </h1>
             </div>
           </div>
@@ -269,27 +269,27 @@ export default function App() {
           </div>
         </div>
 
-        {/* 4-Tab Navigation Strip */}
+        {/* Clean 4-Tab Navigation Strip */}
         <div className="max-w-7xl mx-auto px-6 flex overflow-x-auto gap-2 border-t border-slate-100 pt-2 pb-2">
           {[
             {
               id: 'queue',
-              label: 'Tab 1: Customer Return & Warranty Triage Queue',
+              label: '1. Store Customer Returns Queue',
               icon: PackageCheck,
             },
             {
-              id: 'workbench',
-              label: 'Tab 2: Multimodal Receipt, Serial & Supplier RTV Workbench',
+              id: 'check',
+              label: '2. Receipt, Return Window & Warranty Check',
               icon: ScanBarcode,
             },
             {
-              id: 'copilot',
-              label: 'Tab 3: Returns & Warranty AI Co-Pilot',
+              id: 'assistant',
+              label: '3. Returns & Warranty AI Assistant',
               icon: Bot,
             },
             {
               id: 'slip',
-              label: 'Tab 4: 1-Page Return Disposition & Supplier RTV Claim Slip',
+              label: '4. Customer Return Decision Slip',
               icon: FileCheck2,
             },
           ].map((tab) => {
@@ -315,70 +315,74 @@ export default function App() {
 
       {/* Main Content Container */}
       <main className="max-w-7xl mx-auto px-6 py-6 w-full flex-1 space-y-6">
-        {/* Executive KPI Strip (Hidden during print) */}
+        {/* Top Summary KPI Cards (Hidden during print) */}
         {kpis && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 print:hidden">
+            {/* Card 1 */}
             <div className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-sm">
               <div className="text-xs font-medium text-slate-500">
-                Active Return &amp; Warranty Queue
+                Customer Returns in Queue
               </div>
               <div className="text-2xl font-bold text-slate-900 mt-1">
-                {kpis.total_claims} Claims
+                {kpis.total_requests} Requests
               </div>
               <div className="text-xs text-slate-600 mt-1">
-                Retail Value: <span className="font-semibold">KES {kpis.total_claimed_retail_kes.toLocaleString()}</span>
+                Total Value: <span className="font-semibold">KES {kpis.total_value_kes.toLocaleString()}</span>
               </div>
             </div>
 
+            {/* Card 2 */}
             <div className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-sm">
               <div className="text-xs font-medium text-slate-500">
-                Upstream Supplier RTV Recovery
+                Approved for Refund / Exchange
               </div>
               <div className="text-2xl font-bold text-emerald-700 mt-1">
-                KES {kpis.total_supplier_rtv_recovery_kes.toLocaleString()}
+                {kpis.approved_count} Approved
               </div>
               <div className="text-xs text-emerald-700 font-medium mt-1">
-                100% Vendor Chargeback &amp; Debit Notes
+                KES {kpis.approved_value_kes.toLocaleString()} — Covered by Supplier Warranty
               </div>
             </div>
 
+            {/* Card 3 */}
             <div className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-sm">
               <div className="text-xs font-medium text-slate-500">
-                Fraud &amp; Out-of-Window Protected
+                Routed to Free Warranty Repair
               </div>
-              <div className="text-2xl font-bold text-indigo-700 mt-1">
-                KES {kpis.fraud_and_out_of_window_protected_kes.toLocaleString()}
+              <div className="text-2xl font-bold text-amber-700 mt-1">
+                {kpis.warranty_repair_count} Item (KES {kpis.warranty_repair_value_kes.toLocaleString()})
               </div>
-              <div className="text-xs text-indigo-700 font-medium mt-1">
-                Cash Leakage Prevented at Counter
+              <div className="text-xs text-amber-800 font-medium mt-1">
+                Past 14-day refund window, under 1-yr warranty
               </div>
             </div>
 
+            {/* Card 4 */}
             <div className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-sm">
               <div className="text-xs font-medium text-slate-500">
-                Serial / Lot Mismatch Alerts
+                Rejected Returns (Saved Store Cash)
               </div>
               <div className="text-2xl font-bold text-rose-600 mt-1">
-                {kpis.serial_or_tamper_alerts} Critical Alerts
+                {kpis.rejected_count} Rejected (KES {kpis.rejected_value_kes.toLocaleString()})
               </div>
               <div className="text-xs text-slate-600 mt-1">
-                Authorized Dispositions: <span className="font-semibold">{kpis.authorized_dispositions}/{kpis.total_claims}</span>
+                {kpis.wrong_serial_count} Wrong Serial Number · {kpis.physical_damage_count} Customer Damage
               </div>
             </div>
           </div>
         )}
 
-        {/* TAB 1: Customer Return & Warranty Triage Queue */}
+        {/* TAB 1: Store Customer Returns Queue */}
         {activeTab === 'queue' && (
           <div className="space-y-5">
             <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
               <div className="px-6 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="text-base font-bold text-slate-900">
-                    Store Counter Return, Warranty &amp; Refund Abuse Triage Queue
+                    Store Customer Returns Queue
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Click any claim row to inspect POS receipt serial matching, policy window compliance, and vendor RTV chargeback recovery.
+                    Select any customer return to check the original store receipt, return days, 12-month manufacturer warranty, and product condition.
                   </p>
                 </div>
                 <button
@@ -395,13 +399,12 @@ export default function App() {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                      <th className="py-3.5 px-4">Return ID &amp; Branch</th>
-                      <th className="py-3.5 px-4">Product &amp; Category</th>
-                      <th className="py-3.5 px-4">Window Audit</th>
-                      <th className="py-3.5 px-4">POS vs. Unit Serial/Lot</th>
-                      <th className="py-3.5 px-4">Abuse Risk Score</th>
-                      <th className="py-3.5 px-4">Supplier RTV Recovery</th>
-                      <th className="py-3.5 px-4">Recommended Disposition</th>
+                      <th className="py-3.5 px-4">Return ID &amp; Store</th>
+                      <th className="py-3.5 px-4">Returned Item &amp; Price</th>
+                      <th className="py-3.5 px-4">1. Receipt &amp; Serial Match</th>
+                      <th className="py-3.5 px-4">2. Return Days Check</th>
+                      <th className="py-3.5 px-4">3. Reported Fault / Condition</th>
+                      <th className="py-3.5 px-4">Store Counter Decision</th>
                       <th className="py-3.5 px-4 text-right">Action</th>
                     </tr>
                   </thead>
@@ -419,14 +422,26 @@ export default function App() {
                           <td className="py-3.5 px-4">
                             <div className="font-bold text-slate-900">{item.ret_id}</div>
                             <div className="text-[11px] text-slate-500">{item.store_branch}</div>
-                            <div className="text-[11px] text-slate-500 font-medium mt-0.5">
+                            <div className="text-[11px] text-slate-600 font-medium mt-0.5">
                               {item.customer_name}
                             </div>
                           </td>
                           <td className="py-3.5 px-4">
                             <div className="font-semibold text-slate-900">{item.product_name}</div>
                             <div className="text-[11px] text-slate-500">
-                              {item.category} • Retail: <span className="font-semibold text-slate-700">KES {item.retail_price_kes.toLocaleString()}</span>
+                              {item.category} • <span className="font-semibold text-slate-800">KES {item.retail_price_kes.toLocaleString()}</span>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 font-mono text-[11px]">
+                            <div className="text-slate-600">Receipt: {item.receipt_serial}</div>
+                            <div
+                              className={
+                                item.serial_match
+                                  ? 'text-emerald-700 font-semibold'
+                                  : 'text-rose-600 font-bold'
+                              }
+                            >
+                              Item: {item.physical_serial} ({item.serial_match ? 'Matched' : 'Mismatch'})
                             </div>
                           </td>
                           <td className="py-3.5 px-4">
@@ -438,56 +453,24 @@ export default function App() {
                               }`}
                             >
                               <Clock className="w-3 h-3" />
-                              {item.days_since_purchase}d / {item.policy_window_days}d Window
+                              Bought {item.days_since_purchase}d ago ({item.policy_window_days}d Policy)
                             </span>
                           </td>
-                          <td className="py-3.5 px-4 font-mono text-[11px]">
-                            <div className="text-slate-700">POS: {item.receipt_serial}</div>
-                            <div
-                              className={
-                                item.serial_match && !item.tamper_or_swap_detected
-                                  ? 'text-emerald-700 font-semibold'
-                                  : 'text-rose-600 font-bold'
-                              }
-                            >
-                              Unit: {item.physical_serial}
-                            </div>
+                          <td className="py-3.5 px-4 max-w-xs">
+                            <div className="font-semibold text-slate-800">{item.fault_summary}</div>
+                            <div className="text-[11px] text-slate-500">{item.supplier_coverage_status}</div>
                           </td>
-                          <td className="py-3.5 px-4">
-                            <div className="flex items-center gap-2">
-                              <span
-                                className={`px-2 py-0.5 rounded-md font-bold ${
-                                  item.abuse_risk_score >= 75
-                                    ? 'bg-rose-100 text-rose-800'
-                                    : item.abuse_risk_score >= 40
-                                    ? 'bg-amber-100 text-amber-800'
-                                    : 'bg-emerald-100 text-emerald-800'
-                                }`}
-                              >
-                                {item.abuse_risk_score}/100
-                              </span>
-                              <span className="text-[11px] text-slate-500">
-                                ({item.customer_returns_60d} in 60d)
-                              </span>
-                            </div>
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <div className="font-bold text-emerald-700">
-                              KES {item.supplier_rtv_recovery_kes.toLocaleString()}
-                            </div>
-                            <div className="text-[11px] text-slate-500">{item.supplier_name}</div>
-                          </td>
-                          <td className="py-3.5 px-4">{getDispositionBadge(item)}</td>
+                          <td className="py-3.5 px-4">{getDecisionBadge(item)}</td>
                           <td className="py-3.5 px-4 text-right">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setSelectedRetId(item.ret_id);
-                                setActiveTab('workbench');
+                                setActiveTab('check');
                               }}
                               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-xs transition cursor-pointer"
                             >
-                              <span>Inspect</span>
+                              <span>Verify</span>
                               <ArrowUpRight className="w-3.5 h-3.5" />
                             </button>
                           </td>
@@ -501,18 +484,18 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 2: Multimodal Receipt, Serial & Supplier RTV Workbench */}
-        {activeTab === 'workbench' && selectedClaim && (
+        {/* TAB 2: Receipt, Return Window & Warranty Check */}
+        {activeTab === 'check' && selectedClaim && (
           <div className="space-y-6">
-            {/* Claim Selector Pills */}
+            {/* Return Request Selector Pills */}
             <div className="flex flex-wrap items-center gap-2 bg-white p-3 rounded-2xl border border-slate-200">
-              <span className="text-xs font-bold text-slate-500 px-2">Select Claim:</span>
+              <span className="text-xs font-bold text-slate-500 px-2">Select Customer Return:</span>
               {returnsList.map((item) => (
                 <button
                   key={item.ret_id}
                   onClick={() => {
                     setSelectedRetId(item.ret_id);
-                    setAuthBanner('');
+                    setConfirmBanner('');
                   }}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
                     selectedClaim.ret_id === item.ret_id
@@ -525,25 +508,25 @@ export default function App() {
               ))}
             </div>
 
-            {authBanner && (
+            {confirmBanner && (
               <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-semibold flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>{authBanner}</span>
+                  <span>{confirmBanner}</span>
                 </div>
                 <button
                   onClick={() => setActiveTab('slip')}
                   className="px-3 py-1.5 rounded-lg bg-emerald-700 text-white font-semibold hover:bg-emerald-800 transition cursor-pointer"
                 >
-                  View 1-Page RTV Slip →
+                  Open Customer Return Decision Slip →
                 </button>
               </div>
             )}
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Left 7 Columns: Multimodal Evidence & Deterministic Checks */}
+              {/* Left 7 Columns: Step-by-Step Breakdown of the 3 Simple Checks */}
               <div className="lg:col-span-7 space-y-5">
-                <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+                <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-5">
                   <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
                     <div>
                       <div className="flex items-center gap-2">
@@ -556,77 +539,67 @@ export default function App() {
                         {selectedClaim.product_name}
                       </h3>
                       <p className="text-xs text-slate-600 mt-0.5">
-                        Customer: <span className="font-semibold">{selectedClaim.customer_name}</span> ({selectedClaim.loyalty_tier}) • POS Receipt: <span className="font-mono font-semibold">{selectedClaim.pos_receipt_no}</span>
+                        Customer: <span className="font-semibold">{selectedClaim.customer_name}</span> • Original Store Receipt: <span className="font-mono font-semibold">{selectedClaim.pos_receipt_no}</span> • Paid: <span className="font-semibold">KES {selectedClaim.retail_price_kes.toLocaleString()}</span>
                       </p>
                     </div>
-                    {getDispositionBadge(selectedClaim)}
+                    {getDecisionBadge(selectedClaim)}
                   </div>
 
-                  {/* Multimodal Evidence Cards */}
+                  {/* Step-by-Step 3 Everyday Counter Checks */}
                   <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2.5">
-                      Multimodal Counter Inspection Evidence (OCR + Serial Macro + Bench Test)
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
+                      3-Step Store Counter Verification Checklist
                     </h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      {selectedClaim.evidence_photos.map((ev, i) => (
+                    <div className="space-y-3">
+                      {selectedClaim.verification_steps.map((step) => (
                         <div
-                          key={i}
-                          className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/90 space-y-1.5"
-                        >
-                          <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-700">
-                            <ScanBarcode className="w-4 h-4" />
-                            <span>{ev.label}</span>
-                          </div>
-                          <div className="text-xs font-mono font-semibold text-slate-800 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
-                            {ev.tag}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Deterministic 4-Point Audit Matrix */}
-                  <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2.5">
-                      Deterministic Python Policy, Serial &amp; Vendor RTV Verification
-                    </h4>
-                    <div className="space-y-2.5">
-                      {selectedClaim.deterministic_checks.map((chk) => (
-                        <div
-                          key={chk.check_id}
-                          className={`p-3.5 rounded-xl border flex items-start justify-between gap-4 ${
-                            chk.passed
+                          key={step.step_id}
+                          className={`p-4 rounded-xl border ${
+                            step.passed
                               ? 'bg-emerald-50/40 border-emerald-200'
                               : 'bg-rose-50/50 border-rose-200'
                           }`}
                         >
-                          <div className="space-y-0.5">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
-                              {chk.passed ? (
+                              {step.passed ? (
                                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                               ) : (
                                 <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
                               )}
-                              <span className="text-xs font-bold text-slate-900">{chk.title}</span>
+                              <span className="text-xs font-bold text-slate-900">
+                                {step.step_title}
+                              </span>
                             </div>
-                            <p className="text-xs text-slate-600 pl-6">{chk.detail}</p>
+                            <span
+                              className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
+                                step.passed
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-rose-100 text-rose-800'
+                              }`}
+                            >
+                              {step.status_badge}
+                            </span>
                           </div>
-                          <div className="text-right shrink-0 font-mono text-[11px]">
-                            <div className="text-slate-500">Expected: {chk.expected}</div>
-                            <div className="font-bold text-slate-900">Actual: {chk.actual}</div>
+                          <p className="text-xs text-slate-700 mt-1.5 pl-6 leading-relaxed">
+                            {step.detail}
+                          </p>
+                          <div className="flex flex-wrap gap-4 mt-2 pl-6 text-[11px] font-mono text-slate-600">
+                            <span>Policy / Receipt: {step.expected}</span>
+                            <span className="font-semibold text-slate-900">Observed: {step.actual}</span>
                           </div>
                         </div>
                       ))}
                     </div>
                   </div>
 
-                  {/* Physical Bench Inspection Notes */}
+                  {/* Store Counter Inspection Notes */}
                   <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
                     <div className="text-xs font-bold text-slate-800 mb-1.5">
-                      Counter &amp; Technical Bench Inspection Log
+                      Store Counter Inspection Notes
                     </div>
                     <ul className="space-y-1 text-xs text-slate-600 list-disc list-inside">
-                      {selectedClaim.visual_inspection_notes.map((n, idx) => (
+                      {selectedClaim.counter_inspection_notes.map((n, idx) => (
                         <li key={idx}>{n}</li>
                       ))}
                     </ul>
@@ -634,76 +607,62 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Right 5 Columns: Financial RTV Accounting & One-Click Authorization */}
+              {/* Right 5 Columns: Clear Store Counter Decision & Quick Simulator */}
               <div className="lg:col-span-5 space-y-5">
                 <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-5">
                   <div>
                     <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-md">
-                      Disposition &amp; Upstream Supplier RTV Accounting
+                      Recommended Store Counter Decision
                     </span>
                     <h3 className="text-base font-bold text-slate-900 mt-2">
-                      {selectedClaim.disposition_label}
+                      {selectedClaim.decision_label}
                     </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Supplier: <span className="font-semibold text-slate-800">{selectedClaim.supplier_name}</span> ({selectedClaim.supplier_vendor_code})
+                    <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                      {selectedClaim.counter_action_summary}
                     </p>
                   </div>
 
                   <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-2.5 text-xs">
                     <div className="flex justify-between">
-                      <span className="text-slate-600">POS Retail Purchase Value:</span>
+                      <span className="text-slate-600">Original Receipt Amount:</span>
                       <span className="font-bold text-slate-900">
                         KES {selectedClaim.retail_price_kes.toLocaleString()}
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-600">Approved Customer Refund / Exchange:</span>
+                      <span className="text-slate-600">Customer Refund / Replacement Value:</span>
                       <span className="font-bold text-indigo-700">
                         KES {selectedClaim.customer_refund_kes.toLocaleString()}
                       </span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">Wholesale Inventory Cost:</span>
-                      <span className="font-semibold text-slate-800">
-                        KES {selectedClaim.wholesale_cost_kes.toLocaleString()}
-                      </span>
-                    </div>
                     <div className="flex justify-between border-t border-slate-200 pt-2">
-                      <span className="font-semibold text-emerald-800">
-                        Upstream Supplier RTV Recovery:
-                      </span>
-                      <span className="font-bold text-emerald-700">
-                        KES {selectedClaim.supplier_rtv_recovery_kes.toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">Net Unrecovered Store Margin Loss:</span>
-                      <span className="font-bold text-slate-900">
-                        KES {selectedClaim.net_retailer_loss_kes.toLocaleString()}
+                      <span className="text-slate-600">Manufacturer / Supplier Coverage:</span>
+                      <span className="font-semibold text-emerald-700 text-right">
+                        {selectedClaim.supplier_coverage_status}
                       </span>
                     </div>
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Controller Authorization &amp; RTV Dispatch Note
+                      Store Supervisor Note (Optional)
                     </label>
                     <textarea
                       rows={2}
-                      value={inspectorNotes}
-                      onChange={(e) => setInspectorNotes(e.target.value)}
-                      placeholder="Optional supervisor sign-off note or RTV dock instructions..."
+                      value={supervisorNotes}
+                      onChange={(e) => setSupervisorNotes(e.target.value)}
+                      placeholder="Add a note for the customer return slip or service center..."
                       className="w-full rounded-xl border border-slate-300 p-2.5 text-xs focus:border-indigo-600 outline-none"
                     />
                   </div>
 
                   <div className="space-y-2.5">
                     <button
-                      onClick={handleAuthorizeDisposition}
+                      onClick={handleConfirmDecision}
                       className="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-sm transition flex items-center justify-center gap-2 cursor-pointer"
                     >
                       <ShieldCheck className="w-4 h-4" />
-                      <span>Authorize Disposition &amp; Generate Supplier RTV Claim</span>
+                      <span>Confirm Return Decision</span>
                     </button>
 
                     <button
@@ -711,17 +670,17 @@ export default function App() {
                       className="w-full py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
                     >
                       <Printer className="w-4 h-4" />
-                      <span>Open 1-Page Printable Disposition &amp; RTV Claim Slip</span>
+                      <span>Open Printable Customer Return Decision Slip</span>
                     </button>
                   </div>
                 </div>
 
-                {/* Interactive Policy & Abuse Simulator */}
+                {/* Test Another Return Scenario */}
                 <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
                   <div className="flex items-center gap-2">
                     <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
                     <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
-                      What-If Counter Return &amp; Serial Match Simulator
+                      Quick Counter Check Simulator
                     </h4>
                   </div>
 
@@ -736,9 +695,8 @@ export default function App() {
                         >
                           <option>Consumer Electronics</option>
                           <option>Major Appliances</option>
-                          <option>Small Domestic Appliances</option>
-                          <option>Cold-Chain Perishables</option>
-                          <option>Personal Care &amp; Dermocosmetics</option>
+                          <option>Small Kitchen Appliances</option>
+                          <option>Computers &amp; Laptops</option>
                         </select>
                       </div>
                       <div>
@@ -759,7 +717,7 @@ export default function App() {
                     <div className="grid grid-cols-2 gap-2.5">
                       <div>
                         <label className="block font-semibold text-slate-600 mb-1">
-                          POS Receipt Serial
+                          Receipt Serial Number
                         </label>
                         <input
                           type="text"
@@ -772,7 +730,7 @@ export default function App() {
                       </div>
                       <div>
                         <label className="block font-semibold text-slate-600 mb-1">
-                          Physical Unit Serial
+                          Returned Item Serial
                         </label>
                         <input
                           type="text"
@@ -785,10 +743,10 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2.5">
+                    <div className="grid grid-cols-2 gap-2.5 items-center">
                       <div>
                         <label className="block font-semibold text-slate-600 mb-1">
-                          Retail Price (KES)
+                          Price Paid (KES)
                         </label>
                         <input
                           type="number"
@@ -799,18 +757,21 @@ export default function App() {
                           className="w-full rounded-lg border border-slate-300 p-2"
                         />
                       </div>
-                      <div>
-                        <label className="block font-semibold text-slate-600 mb-1">
-                          Customer Returns (60d)
+                      <div className="pt-4">
+                        <label className="inline-flex items-center gap-2 font-semibold text-slate-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={simForm.customer_physical_damage}
+                            onChange={(e) =>
+                              setSimForm({
+                                ...simForm,
+                                customer_physical_damage: e.target.checked,
+                              })
+                            }
+                            className="rounded border-slate-300"
+                          />
+                          <span>Customer Physical Damage?</span>
                         </label>
-                        <input
-                          type="number"
-                          value={simForm.customer_returns_60d}
-                          onChange={(e) =>
-                            setSimForm({ ...simForm, customer_returns_60d: e.target.value })
-                          }
-                          className="w-full rounded-lg border border-slate-300 p-2"
-                        />
                       </div>
                     </div>
 
@@ -818,22 +779,20 @@ export default function App() {
                       type="submit"
                       className="w-full py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold transition cursor-pointer"
                     >
-                      Run Deterministic Policy Simulation
+                      Check Return Eligibility
                     </button>
                   </form>
 
                   {simResult && (
                     <div className="p-3.5 rounded-xl bg-indigo-50/70 border border-indigo-200 space-y-1 text-xs">
                       <div className="font-bold text-indigo-950">
-                        Result: {simResult.disposition_label}
+                        Decision: {simResult.decision_label}
                       </div>
                       <div className="text-slate-700">
-                        Abuse Risk Score: <span className="font-bold">{simResult.abuse_risk_score}/100</span> • Serial Match:{' '}
-                        <span className="font-bold">{simResult.serial_match ? 'PASS' : 'MISMATCH'}</span>
+                        Serial Match: <span className="font-bold">{simResult.serial_match ? 'Matched' : 'Mismatch'}</span> • Store Window:{' '}
+                        <span className="font-bold">{simResult.within_policy_window ? 'Within Window' : 'Past Window'}</span>
                       </div>
-                      <div className="text-emerald-800 font-semibold">
-                        Recoverable Supplier RTV: KES {simResult.supplier_rtv_recovery_kes.toLocaleString()}
-                      </div>
+                      <div className="text-slate-600">{simResult.counter_action_summary}</div>
                     </div>
                   )}
                 </div>
@@ -842,28 +801,28 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 3: Returns & Warranty AI Co-Pilot */}
-        {activeTab === 'copilot' && (
+        {/* TAB 3: Returns & Warranty AI Assistant */}
+        {activeTab === 'assistant' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div className="lg:col-span-4 space-y-4">
               <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
                 <div className="flex items-center gap-2 text-indigo-700 font-bold text-sm">
                   <Bot className="w-5 h-5" />
-                  <span>One-Click Executive Audit Prompts</span>
+                  <span>Common Store Counter Questions</span>
                 </div>
                 <p className="text-xs text-slate-500">
-                  Query Gemini 2.5 Flash grounded on live POS serial checks, abuse velocity scores, and vendor RTV contracts.
+                  Click any question below to ask the AI Assistant about the selected customer return or the store queue.
                 </p>
                 <div className="space-y-2">
                   {[
-                    `Audit ${selectedClaim?.ret_id || 'RET-2026-8410'} and explain the serial match, policy window, and supplier RTV recovery.`,
-                    'Which return claims in our queue show serial number swapping or hygiene seal tampering?',
-                    'Summarize total recoverable Supplier RTV chargebacks and cold-chain debit notes across all 6 claims.',
-                    'How should the counter handle RET-2026-8412 (45-day NutriBullet blender return) without losing store margin?',
+                    `Explain the 3 verification checks and counter decision for ${selectedClaim?.ret_id || 'RET-2026-8410'}.`,
+                    'Why is the NutriBullet blender (RET-2026-8412) sent for free warranty repair instead of a cash refund?',
+                    'Why were the Sony headphones (RET-2026-8411) and HP laptop (RET-2026-8415) rejected?',
+                    'Which customer returns qualify for an immediate refund or replacement today?',
                   ].map((q, idx) => (
                     <button
                       key={idx}
-                      onClick={() => handleAskCopilot(q)}
+                      onClick={() => handleAskAssistant(q)}
                       className="w-full text-left p-3 rounded-xl bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 text-xs font-medium text-slate-800 transition cursor-pointer"
                     >
                       {q}
@@ -879,11 +838,11 @@ export default function App() {
                   <div className="flex items-center gap-2">
                     <Bot className="w-4 h-4 text-indigo-600" />
                     <span className="text-xs font-bold text-slate-900">
-                      Returns, Warranty &amp; Supplier RTV AI Co-Pilot
+                      Returns &amp; Warranty AI Assistant
                     </span>
                   </div>
                   <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
-                    Active Context: {selectedClaim?.ret_id}
+                    Selected Return: {selectedClaim?.ret_id}
                   </span>
                 </div>
 
@@ -911,7 +870,7 @@ export default function App() {
                   ))}
                   {chatLoading && (
                     <div className="text-xs text-slate-500 italic">
-                      Auditing POS receipt serials, abuse velocity, and supplier RTV terms...
+                      Checking store receipt, return policy days, and manufacturer warranty coverage...
                     </div>
                   )}
                 </div>
@@ -919,7 +878,7 @@ export default function App() {
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    handleAskCopilot();
+                    handleAskAssistant();
                   }}
                   className="p-4 border-t border-slate-200 flex items-center gap-2"
                 >
@@ -927,7 +886,7 @@ export default function App() {
                     type="text"
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Ask about serial match, return policy window, or vendor RTV recovery..."
+                    placeholder="Ask a question about receipt matching, return days, or warranty repair..."
                     className="flex-1 rounded-xl border border-slate-300 px-3.5 py-2.5 text-xs focus:border-indigo-600 outline-none"
                   />
                   <button
@@ -944,12 +903,12 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 4: 1-Page Return Disposition & Supplier RTV Claim Slip (Print-Ready) */}
+        {/* TAB 4: Customer Return Decision Slip (Printable) */}
         {activeTab === 'slip' && selectedClaim && (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 print:hidden">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-bold text-slate-600">Select Slip:</span>
+                <span className="text-xs font-bold text-slate-600">Select Return Slip:</span>
                 {returnsList.map((item) => (
                   <button
                     key={item.ret_id}
@@ -969,129 +928,128 @@ export default function App() {
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-sm transition cursor-pointer"
               >
                 <Printer className="w-4 h-4" />
-                <span>Print 1-Page Return Disposition &amp; RTV Slip</span>
+                <span>Print Customer Return Decision Slip</span>
               </button>
             </div>
 
-            {/* Printable 1-Page Certificate */}
+            {/* Printable Customer Return Decision Slip */}
             <div className="bg-white rounded-2xl border border-slate-300 p-8 shadow-sm max-w-4xl mx-auto space-y-6 print:border-0 print:shadow-none print:p-2">
               <div className="flex items-start justify-between border-b-2 border-slate-900 pb-4">
                 <div>
                   <div className="text-[11px] font-bold uppercase tracking-widest text-indigo-700">
-                    Official Retail Loss Prevention &amp; Upstream Vendor RTV Voucher
+                    Store Customer Service &amp; Warranty Verification Desk
                   </div>
                   <h2 className="text-xl font-bold text-slate-900 mt-0.5">
-                    1-Page Customer Return Disposition &amp; Supplier RTV Claim Slip
+                    Customer Return Decision Slip
                   </h2>
                   <p className="text-xs text-slate-600">
-                    Store Branch: {selectedClaim.store_branch} • Claim Date: {selectedClaim.claim_date}
+                    Store Branch: {selectedClaim.store_branch} • Date: {selectedClaim.claim_date}
                   </p>
                 </div>
                 <div className="text-right font-mono text-xs">
-                  <div className="font-bold text-slate-900">CLAIM: {selectedClaim.ret_id}</div>
-                  <div className="text-indigo-700 font-bold">RTV REF: {selectedClaim.rtv_claim_number}</div>
+                  <div className="font-bold text-slate-900">RETURN ID: {selectedClaim.ret_id}</div>
+                  <div className="text-indigo-700 font-bold">SLIP NO: {selectedClaim.approval_slip_no}</div>
                   <div className="text-slate-500">STATUS: {selectedClaim.status}</div>
                 </div>
               </div>
 
-              {/* 2-Column Metadata Summary */}
+              {/* 2-Column Customer & Item Details */}
               <div className="grid grid-cols-2 gap-6 text-xs">
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
                   <div className="font-bold text-slate-900 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
                     <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>Customer &amp; POS Purchase Record</span>
+                    <span>Customer &amp; Original Store Receipt</span>
                   </div>
-                  <div><span className="text-slate-500">Customer:</span> <span className="font-semibold">{selectedClaim.customer_name} ({selectedClaim.customer_id})</span></div>
-                  <div><span className="text-slate-500">Loyalty Tier:</span> <span className="font-semibold">{selectedClaim.loyalty_tier}</span></div>
-                  <div><span className="text-slate-500">POS Receipt #:</span> <span className="font-mono font-semibold">{selectedClaim.pos_receipt_no}</span></div>
-                  <div><span className="text-slate-500">Purchase Date:</span> <span className="font-semibold">{selectedClaim.purchase_date} ({selectedClaim.days_since_purchase} days elapsed)</span></div>
-                  <div><span className="text-slate-500">60-Day Return Velocity:</span> <span className="font-semibold">{selectedClaim.customer_returns_60d} returns (Abuse Score: {selectedClaim.abuse_risk_score}/100)</span></div>
+                  <div><span className="text-slate-500">Customer Name:</span> <span className="font-semibold">{selectedClaim.customer_name}</span></div>
+                  <div><span className="text-slate-500">Customer Phone:</span> <span className="font-semibold">{selectedClaim.customer_phone}</span></div>
+                  <div><span className="text-slate-500">Original Store Receipt:</span> <span className="font-mono font-semibold">{selectedClaim.pos_receipt_no}</span></div>
+                  <div><span className="text-slate-500">Purchase Date:</span> <span className="font-semibold">{selectedClaim.purchase_date} ({selectedClaim.days_since_purchase} days ago)</span></div>
+                  <div><span className="text-slate-500">Price Paid:</span> <span className="font-bold">KES {selectedClaim.retail_price_kes.toLocaleString()}</span></div>
                 </div>
 
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
                   <div className="font-bold text-slate-900 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
                     <Building2 className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>Product &amp; Upstream Supplier Warranty</span>
+                    <span>Returned Item &amp; Warranty Details</span>
                   </div>
-                  <div><span className="text-slate-500">Product / SKU:</span> <span className="font-semibold">{selectedClaim.product_name} ({selectedClaim.sku})</span></div>
-                  <div><span className="text-slate-500">Supplier:</span> <span className="font-semibold">{selectedClaim.supplier_name} ({selectedClaim.supplier_vendor_code})</span></div>
-                  <div><span className="text-slate-500">POS Receipt Serial/Lot:</span> <span className="font-mono font-semibold">{selectedClaim.receipt_serial}</span></div>
-                  <div><span className="text-slate-500">Physical Unit Serial/Lot:</span> <span className="font-mono font-bold">{selectedClaim.physical_serial}</span></div>
-                  <div><span className="text-slate-500">Warranty Policy:</span> <span className="font-semibold">{selectedClaim.supplier_warranty_terms}</span></div>
+                  <div><span className="text-slate-500">Product:</span> <span className="font-semibold">{selectedClaim.product_name}</span></div>
+                  <div><span className="text-slate-500">Manufacturer / Partner:</span> <span className="font-semibold">{selectedClaim.supplier_name}</span></div>
+                  <div><span className="text-slate-500">Serial on Receipt:</span> <span className="font-mono font-semibold">{selectedClaim.receipt_serial}</span></div>
+                  <div><span className="text-slate-500">Serial on Returned Item:</span> <span className="font-mono font-bold">{selectedClaim.physical_serial}</span></div>
+                  <div><span className="text-slate-500">Policy Terms:</span> <span className="font-semibold">{selectedClaim.supplier_warranty_terms}</span></div>
                 </div>
               </div>
 
-              {/* Deterministic Verification Table */}
+              {/* 3-Step Verification Summary Table */}
               <div>
                 <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
-                  Deterministic Policy, Serial &amp; Abuse Audit Matrix
+                  3-Step Store Return &amp; Warranty Verification Checklist
                 </div>
                 <table className="w-full text-xs border border-slate-200">
                   <thead className="bg-slate-100 text-slate-700">
                     <tr>
-                      <th className="py-2 px-3 text-left">Audit Control</th>
-                      <th className="py-2 px-3 text-left">Policy Threshold</th>
-                      <th className="py-2 px-3 text-left">Observed Counter Value</th>
-                      <th className="py-2 px-3 text-left">Status</th>
+                      <th className="py-2 px-3 text-left">Verification Check</th>
+                      <th className="py-2 px-3 text-left">Requirement</th>
+                      <th className="py-2 px-3 text-left">Counter Finding</th>
+                      <th className="py-2 px-3 text-left">Result</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
-                    {selectedClaim.deterministic_checks.map((c) => (
-                      <tr key={c.check_id}>
-                        <td className="py-2 px-3 font-semibold">{c.title}</td>
-                        <td className="py-2 px-3 font-mono">{c.expected}</td>
-                        <td className="py-2 px-3 font-mono font-semibold">{c.actual}</td>
-                        <td className="py-2 px-3 font-bold">
-                          {c.passed ? 'PASS' : 'FLAGGED'}
-                        </td>
+                    {selectedClaim.verification_steps.map((s) => (
+                      <tr key={s.step_id}>
+                        <td className="py-2 px-3 font-semibold">{s.step_title}</td>
+                        <td className="py-2 px-3 font-mono">{s.expected}</td>
+                        <td className="py-2 px-3 font-mono font-semibold">{s.actual}</td>
+                        <td className="py-2 px-3 font-bold">{s.status_badge}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
 
-              {/* Financial Settlement & Supplier RTV Recovery Box */}
-              <div className="p-4 rounded-xl bg-indigo-50/60 border border-indigo-200 grid grid-cols-4 gap-4 text-xs">
-                <div>
-                  <div className="text-slate-500">Final Disposition</div>
-                  <div className="font-bold text-slate-900 mt-0.5">{selectedClaim.disposition_label}</div>
-                </div>
-                <div>
-                  <div className="text-slate-500">Customer Refund Approved</div>
-                  <div className="font-bold text-indigo-700 text-sm mt-0.5">
-                    KES {selectedClaim.customer_refund_kes.toLocaleString()}
+              {/* Final Counter Decision Box */}
+              <div className="p-4 rounded-xl bg-indigo-50/60 border border-indigo-200 space-y-2 text-xs">
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <div className="text-slate-500">Store Counter Decision</div>
+                    <div className="font-bold text-slate-900 text-sm mt-0.5">
+                      {selectedClaim.decision_label}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">Customer Refund / Replacement</div>
+                    <div className="font-bold text-indigo-700 text-sm mt-0.5">
+                      KES {selectedClaim.customer_refund_kes.toLocaleString()}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">Warranty Coverage Status</div>
+                    <div className="font-bold text-emerald-700 text-xs mt-0.5">
+                      {selectedClaim.supplier_coverage_status}
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <div className="text-slate-500">Supplier RTV Chargeback</div>
-                  <div className="font-bold text-emerald-700 text-sm mt-0.5">
-                    KES {selectedClaim.supplier_rtv_recovery_kes.toLocaleString()}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-slate-500">Net Store Margin Loss</div>
-                  <div className="font-bold text-slate-900 text-sm mt-0.5">
-                    KES {selectedClaim.net_retailer_loss_kes.toLocaleString()}
-                  </div>
+                <div className="pt-2 border-t border-indigo-100 text-slate-700">
+                  <span className="font-semibold">Next Step Instructions:</span> {selectedClaim.counter_action_summary}
                 </div>
               </div>
 
-              {/* Signatures */}
+              {/* Sign-Off Lines */}
               <div className="grid grid-cols-3 gap-6 pt-4 border-t border-slate-200 text-xs text-slate-600">
                 <div>
-                  <div className="font-bold text-slate-900">Counter Inspection Officer</div>
+                  <div className="font-bold text-slate-900">Store Supervisor Sign-Off</div>
                   <div className="mt-4 border-b border-slate-400 pb-1 font-mono text-[11px]">
                     {selectedClaim.authorized_by || `${user.name} (${user.email})`}
                   </div>
                 </div>
                 <div>
-                  <div className="font-bold text-slate-900">Upstream Vendor RTV Desk</div>
+                  <div className="font-bold text-slate-900">Warranty / Service Desk Reference</div>
                   <div className="mt-4 border-b border-slate-400 pb-1 font-mono text-[11px]">
-                    Ref: {selectedClaim.rtv_claim_number} ({selectedClaim.rtv_mechanism})
+                    Slip #{selectedClaim.approval_slip_no}
                   </div>
                 </div>
                 <div>
-                  <div className="font-bold text-slate-900">Customer Acknowledgment</div>
+                  <div className="font-bold text-slate-900">Customer Signature</div>
                   <div className="mt-4 border-b border-slate-400 pb-1 font-mono text-[11px]">
                     {selectedClaim.customer_name}
                   </div>

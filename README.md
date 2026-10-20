@@ -1,32 +1,35 @@
-# Multimodal Customer Return, Warranty & Refund Abuse Triage Agent (`Retail_ReturnsWarrantyAgent`)
+# Customer Return & Warranty Verification Agent (`Retail_ReturnsWarrantyAgent`)
 
-**Agent #11 — Retail, Distribution & Manufacturing Suite**
+**Agent #11 — Retail Store Operations Suite**
 
-An enterprise store-counter and loss-prevention workbench that combines **multimodal POS receipt & serial/lot inspection**, **deterministic return policy window & abuse velocity scoring**, and **automated upstream Supplier Return-to-Vendor (RTV) chargeback recovery**.
-
----
-
-## Core Capabilities
-
-1. **POS Receipt, Serial/Batch No. & Visual Defect Inspection**
-   - Compares POS receipt serial/lot numbers against physical chassis serial plates and inner product batch codes.
-   - Detects serial-swapped consumer electronics and broken hygiene seals on personal care items at the counter.
-2. **Deterministic Policy Window, Abuse Score & Supplier Warranty Match**
-   - Enforces category-specific return windows (`7-Day Cold-Chain & Personal Care`, `14-Day Consumer Electronics & Small Appliances`, `30-Day Major Appliances`).
-   - Calculates a deterministic `0–100` Customer Abuse Risk Score from 60-day return velocity, lifetime return rate, and serial/tamper flags.
-   - Matches genuine manufacturing defects and cold-chain transit excursions directly to upstream vendor RTV chargebacks and quality debit notes.
-3. **1-Page Return Disposition & Supplier RTV Chargeback Slip**
-   - Generates a print-ready 1-page disposition certificate and vendor RTV voucher via `window.print()`.
+A clear, everyday store-counter assistant that helps retail supervisors verify **Customer Returns, Store Receipts, and Manufacturer Warranty Coverage** in seconds before paying out store cash or issuing a replacement item.
 
 ---
 
-## Seeded Retail Return & Warranty Scenarios
+## Single Core Concept: 3 Simple Store Counter Checks
 
-| Return ID | Product & Category | Key Finding | Disposition & RTV Impact |
-| :--- | :--- | :--- | :--- |
-| **`RET-2026-8410`** | Von Hotpoint 340L Double Door Fridge (*Major Appliances*) | Day 11/30; Exact Serial Match `VHP-340L-992841`; Verified inverter compressor defect | **Approve Full Refund/Exchange + 100% Vendor RTV Chargeback (KES 68,500)** |
-| **`RET-2026-8411`** | Sony WH-1000XM5 Headphones (*Consumer Electronics*) | POS Serial `SNY-XM5-884120` != Unit Serial `SNY-XM5-102944`; 9 returns in 60 days (Abuse Score 96/100) | **Reject Refund — Serial Swap Fraud Alert** |
-| **`RET-2026-8412`** | NutriBullet Pro 900W Blender (*Small Appliances*) | Day 45 vs. 14-day retail window; Exact Serial Match `NTB-900W-447102` | **Deny Cash Refund — Route to Authorized Vendor Service Center** |
-| **`RET-2026-8413`** | Brookside Greek Yogurt 6kg Multipack (*Cold-Chain Perishables*) | Day 1/7; Lot `BSK-LOT-202604A` matches +11.4°C transit excursion log | **Approve Refund + 100% Supplier Quality Debit Note (KES 3,480)** |
-| **`RET-2026-8414`** | LG 55" OLED evo C3 4K Smart TV (*Consumer Electronics*) | Day 3/14; Exact Serial Match `LG-OLED55-773190`; Factory panel bonding defect | **Approve DOA Exchange + 100% Vendor RTV Credit Note (KES 142,000)** |
-| **`RET-2026-8415`** | La Roche-Posay Effaclar Kit (*Personal Care*) | Broken hygiene seal + Lot mismatch (`#7721` vs `#5109`); Day 9/7; 6 returns in 60d | **Reject Refund — Hygiene Tamper & Lot Mismatch Alert** |
+When a customer brings an item back to the store counter asking for a refund or exchange, the agent checks **3 everyday rules**:
+
+1. **Step 1 — Original Store Receipt & Returned Item Check**
+   - Does the customer's **Original Store Receipt** match the **exact item and serial number** brought back to the counter?
+2. **Step 2 — Store Return Days & Manufacturer Warranty Check**
+   - Is the item within the **Store Return Policy Window** (`14-Day` or `30-Day` store refund/exchange window)?
+   - If it is past the 14-day store refund window (for example, bought `45 days ago`), is it still covered under the **12-Month Manufacturer Warranty**?
+   - Is the problem a **Genuine Factory Fault**, or **Customer Physical Damage** (cracked screen, liquid spill, or dropped unit)?
+3. **Step 3 — Clear Store Counter Decision (`Customer Return Decision Slip`)**
+   - **`Approve Refund or Exchange`** — Within the store return window, receipt matches the item's serial number, and a genuine factory fault is confirmed.
+   - **`Send for Manufacturer Warranty Repair`** — Past the 14-day store refund window, but still within the 12-month manufacturer warranty period. Book a free warranty repair instead of giving out store cash.
+   - **`Reject Return`** — Either the serial number on the item does not match the receipt, or the item has customer physical damage not covered by warranty.
+
+---
+
+## Seeded Store Return Requests (`KES 388,500` Total Queue)
+
+| Return ID | Item & Price | 1. Receipt & Serial Match | 2. Return Days Check | 3. Fault / Condition | Store Counter Decision |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`RET-2026-8410`** | Von Hotpoint 340L Double Door Refrigerator (`KES 89,500`) | **Matched** (`VHP-340L-992841`) | Bought `11 days ago` (`30-Day Policy`) | Compressor not cooling (Factory Fault) | **Approve Refund or Exchange** |
+| **`RET-2026-8411`** | Sony WH-1000XM5 Wireless Headphones (`KES 54,000`) | **Serial Mismatch** (`SNY-884120` vs `SNY-102944`) | Bought `6 days ago` (`14-Day Policy`) | Different old unit brought back on a new receipt | **Reject Return — Wrong Serial Number** |
+| **`RET-2026-8412`** | NutriBullet Pro 900W Blender (`KES 18,500`) | **Matched** (`NTB-900W-447102`) | Bought `45 days ago` (Past `14-Day` refund window; under `365-Day` warranty) | Motor overheating under normal use | **Send for Manufacturer Warranty Repair** |
+| **`RET-2026-8413`** | Samsung 32L Digital Microwave Oven (`KES 21,500`) | **Matched** (`SAM-MW32-551920`) | Bought `5 days ago` (`14-Day Policy`) | Touch keypad not responding out of the box (Factory Fault) | **Approve Refund or Exchange** |
+| **`RET-2026-8414`** | LG 55-Inch 4K Smart TV (`KES 145,000`) | **Matched** (`LG-TV55-773190`) | Bought `3 days ago` (`14-Day Policy`) | Vertical display line defect (Factory Panel Fault) | **Approve Refund or Exchange** |
+| **`RET-2026-8415`** | HP Pavilion 15 Laptop (`KES 60,000`) | **Matched** (`HP-PAV15-339104`) | Bought `19 days ago` (`14-Day Policy`) | Cracked screen & liquid spill on keyboard (Customer Physical Damage) | **Reject Return — Customer Physical Damage** |

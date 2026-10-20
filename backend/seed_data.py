@@ -1,207 +1,180 @@
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 import copy
 
 CATEGORY_POLICIES: Dict[str, Dict[str, Any]] = {
     "Major Appliances": {
-        "policy_window_days": 30,
-        "requires_serial_match": True,
-        "hygiene_seal_required": False,
-        "supplier_rtv_recovery_rate": 1.0,
-        "policy_name": "30-Day Major Appliance DOA & Compressor Warranty Policy",
+        "store_return_window_days": 30,
+        "manufacturer_warranty_days": 365,
+        "policy_name": "30-Day Store Refund/Exchange & 12-Month Manufacturer Warranty",
     },
     "Consumer Electronics": {
-        "policy_window_days": 14,
-        "requires_serial_match": True,
-        "hygiene_seal_required": False,
-        "supplier_rtv_recovery_rate": 1.0,
-        "policy_name": "14-Day Consumer Electronics Serial-Verified DOA Policy",
+        "store_return_window_days": 14,
+        "manufacturer_warranty_days": 365,
+        "policy_name": "14-Day Store Refund/Exchange & 12-Month Manufacturer Warranty",
     },
-    "Small Domestic Appliances": {
-        "policy_window_days": 14,
-        "requires_serial_match": True,
-        "hygiene_seal_required": False,
-        "supplier_rtv_recovery_rate": 0.85,
-        "policy_name": "14-Day Small Appliance Return & Authorized Repair Policy",
+    "Small Kitchen Appliances": {
+        "store_return_window_days": 14,
+        "manufacturer_warranty_days": 365,
+        "policy_name": "14-Day Store Refund/Exchange & 12-Month Manufacturer Warranty",
     },
-    "Cold-Chain Perishables": {
-        "policy_window_days": 7,
-        "requires_serial_match": True,
-        "hygiene_seal_required": False,
-        "supplier_rtv_recovery_rate": 1.0,
-        "policy_name": "7-Day Fresh & Cold-Chain Lot Quality Guarantee",
-    },
-    "Personal Care & Dermocosmetics": {
-        "policy_window_days": 7,
-        "requires_serial_match": True,
-        "hygiene_seal_required": True,
-        "supplier_rtv_recovery_rate": 0.0,
-        "policy_name": "7-Day Unopened Hygiene-Sealed Personal Care Policy",
+    "Computers & Laptops": {
+        "store_return_window_days": 14,
+        "manufacturer_warranty_days": 365,
+        "policy_name": "14-Day Store Refund/Exchange & 12-Month Manufacturer Warranty (Excludes Physical Damage)",
     },
 }
 
 
 def evaluate_return_claim(claim: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Deterministic Python engine verifying:
-    1. Days Since Purchase vs. Category Return Policy Window (7 / 14 / 30 Days)
-    2. Serial / Batch Number Match (POS Receipt Serial == Physical Item Serial)
-    3. Customer Return Frequency & Abuse Risk Score (0-100)
-    4. Upstream Supplier Warranty Coverage & RTV Chargeback Recovery Amount
+    Plain-English 3-Step Store Return & Warranty Verification Engine:
+    Step 1: Original Store Receipt & Returned Item Serial Match
+    Step 2: Store Return Days (7/14/30-Day Window) & 12-Month Manufacturer Warranty Check
+    Step 3: Product Condition Inspection & Clear Store Counter Decision
     """
     category = claim.get("category", "Consumer Electronics")
     policy = CATEGORY_POLICIES.get(category, CATEGORY_POLICIES["Consumer Electronics"])
 
-    policy_window_days = int(claim.get("policy_window_days", policy["policy_window_days"]))
+    store_window_days = int(claim.get("policy_window_days", policy["store_return_window_days"]))
+    warranty_days = int(claim.get("manufacturer_warranty_days", policy["manufacturer_warranty_days"]))
     days_since_purchase = int(claim.get("days_since_purchase", 0))
-    within_policy_window = days_since_purchase <= policy_window_days
-    window_variance_days = days_since_purchase - policy_window_days
+
+    within_store_window = days_since_purchase <= store_window_days
+    within_manufacturer_warranty = days_since_purchase <= warranty_days
 
     receipt_serial = str(claim.get("receipt_serial", "")).strip().upper()
     physical_serial = str(claim.get("physical_serial", "")).strip().upper()
     serial_match = (receipt_serial == physical_serial) and bool(receipt_serial)
 
-    returns_60d = int(claim.get("customer_returns_60d", 0))
-    lifetime_return_rate_pct = float(claim.get("customer_lifetime_return_rate_pct", 3.5))
-    tamper_detected = bool(claim.get("tamper_or_swap_detected", False))
+    customer_physical_damage = bool(claim.get("customer_physical_damage", False))
     genuine_defect_verified = bool(claim.get("genuine_defect_verified", True))
 
-    # Deterministic Abuse Risk Score calculation (0 - 100)
-    abuse_score = 5
-    if not serial_match:
-        abuse_score += 55
-    if tamper_detected:
-        abuse_score += 30
-    if returns_60d >= 6:
-        abuse_score += 35
-    elif returns_60d >= 3:
-        abuse_score += 18
-    elif returns_60d >= 2:
-        abuse_score += 10
-    if not within_policy_window:
-        abuse_score += 22
-    if lifetime_return_rate_pct >= 25.0:
-        abuse_score += 15
-    if genuine_defect_verified and serial_match and not tamper_detected and returns_60d <= 1:
-        abuse_score = max(4, min(abuse_score, 12))
-
-    abuse_score = min(99, max(2, abuse_score))
-
-    if abuse_score >= 75:
-        abuse_tier = "CRITICAL_FRAUD_RISK"
-    elif abuse_score >= 40:
-        abuse_tier = "MODERATE_POLICY_EXCEPTION"
-    else:
-        abuse_tier = "LOW_RISK_GENUINE"
-
     retail_price_kes = float(claim.get("retail_price_kes", 0.0))
-    wholesale_cost_kes = float(claim.get("wholesale_cost_kes", round(retail_price_kes * 0.76, 2)))
+    supplier_name = claim.get("supplier_name", "Authorized Manufacturer")
 
-    # Determine Recommended Disposition & Upstream Supplier RTV Recovery
-    if not serial_match or tamper_detected:
-        recommended_disposition = "REJECT_FRAUD_SERIAL_TAMPER"
-        disposition_label = "Reject Refund — Serial / Lot Mismatch & Tamper Alert"
+    # Step 3: Clear Store Counter Decision (3 Simple Outcomes)
+    if not serial_match:
+        decision_code = "REJECT_WRONG_SERIAL"
+        decision_label = "Reject Return — Wrong Serial Number"
+        decision_outcome = "Reject Return"
         customer_refund_kes = 0.0
-        supplier_rtv_eligible = False
-        supplier_rtv_recovery_kes = 0.0
-        net_retailer_loss_kes = 0.0
-        rtv_mechanism = "None — Loss Prevention Incident Logged"
-    elif not within_policy_window:
-        recommended_disposition = "ROUTE_AUTHORIZED_WARRANTY_REPAIR"
-        disposition_label = "Deny Cash Refund (Out-of-Window) — Route to Vendor Service Center"
+        supplier_credit_kes = 0.0
+        saved_store_cash_kes = retail_price_kes
+        supplier_coverage_status = "Not Covered — Returned Item Does Not Match Receipt"
+        counter_action_summary = (
+            "Do not issue refund or replacement. The serial number on the item brought to the counter "
+            "does not match the serial number printed on the original store receipt."
+        )
+    elif customer_physical_damage or not genuine_defect_verified:
+        decision_code = "REJECT_PHYSICAL_DAMAGE"
+        decision_label = "Reject Return — Customer Physical Damage"
+        decision_outcome = "Reject Return"
         customer_refund_kes = 0.0
-        supplier_rtv_eligible = True
-        supplier_rtv_recovery_kes = round(wholesale_cost_kes * 0.25, 2)
-        net_retailer_loss_kes = 0.0
-        rtv_mechanism = "Vendor Service Center Warranty Repair Transfer"
-    elif genuine_defect_verified:
-        if category == "Cold-Chain Perishables":
-            recommended_disposition = "APPROVE_REFUND_AND_SUPPLIER_DEBIT_NOTE"
-            disposition_label = "Approve Instant Refund + Issue 100% Supplier Quality Debit Note"
-            rtv_mechanism = "Automated ERP Supplier Quality Debit Note & Batch Quarantine"
-        else:
-            recommended_disposition = "APPROVE_REFUND_AND_VENDOR_RTV"
-            disposition_label = "Approve Full Refund / DOA Exchange + 100% Vendor RTV Chargeback"
-            rtv_mechanism = "Automated Vendor RTV Chargeback & Defective Dock Quarantine"
+        supplier_credit_kes = 0.0
+        saved_store_cash_kes = retail_price_kes
+        supplier_coverage_status = "Not Covered — Physical / Liquid Damage Excluded by Warranty"
+        counter_action_summary = (
+            "Do not issue store refund. Physical impact or liquid damage caused after purchase is not "
+            "covered by the store return policy or the manufacturer warranty."
+        )
+    elif within_store_window:
+        decision_code = "APPROVE_REFUND_OR_EXCHANGE"
+        decision_label = "Approve Refund or Exchange"
+        decision_outcome = "Approve Refund or Exchange"
         customer_refund_kes = retail_price_kes
-        supplier_rtv_eligible = True
-        supplier_rtv_recovery_kes = wholesale_cost_kes
-        net_retailer_loss_kes = 0.0
+        supplier_credit_kes = retail_price_kes
+        saved_store_cash_kes = 0.0
+        supplier_coverage_status = f"Covered by {supplier_name} Supplier Credit"
+        counter_action_summary = (
+            f"Give the customer an immediate replacement or full refund of KES {retail_price_kes:,.0f}. "
+            f"The store recovers the full value via {supplier_name} supplier warranty credit."
+        )
+    elif within_manufacturer_warranty:
+        decision_code = "SEND_FOR_WARRANTY_REPAIR"
+        decision_label = "Send for Manufacturer Warranty Repair"
+        decision_outcome = "Send for Manufacturer Warranty Repair"
+        customer_refund_kes = 0.0
+        supplier_credit_kes = 0.0
+        saved_store_cash_kes = retail_price_kes
+        supplier_coverage_status = f"Covered for Free Repair by {supplier_name} (12-Month Warranty)"
+        counter_action_summary = (
+            f"Item is past the {store_window_days}-day store refund window ({days_since_purchase} days old), "
+            f"so do not pay out cash from the store till. Book a free manufacturer warranty repair with {supplier_name}."
+        )
     else:
-        recommended_disposition = "STORE_CREDIT_RESTOCK_FEE"
-        disposition_label = "Approve Conditional Store Credit (15% Restocking Fee)"
-        customer_refund_kes = round(retail_price_kes * 0.85, 2)
-        supplier_rtv_eligible = False
-        supplier_rtv_recovery_kes = 0.0
-        net_retailer_loss_kes = 0.0
-        rtv_mechanism = "Internal Markdown Restock to Open-Box Clearance"
+        decision_code = "REJECT_EXPIRED_WARRANTY"
+        decision_label = "Reject Return — Warranty Expired"
+        decision_outcome = "Reject Return"
+        customer_refund_kes = 0.0
+        supplier_credit_kes = 0.0
+        saved_store_cash_kes = retail_price_kes
+        supplier_coverage_status = "Expired — Past 12-Month Manufacturer Warranty"
+        counter_action_summary = "Both the store return window and the 12-month manufacturer warranty have expired."
 
-    checks = [
+    verification_steps = [
         {
-            "check_id": "CHK-WINDOW",
-            "title": "Return Policy Window Check",
-            "expected": f"<= {policy_window_days} Days ({category})",
-            "actual": f"{days_since_purchase} Days Since Purchase",
-            "passed": within_policy_window,
+            "step_id": "STEP-1-RECEIPT",
+            "step_title": "Check A: Original Store Receipt & Serial Number Match",
+            "expected": f"Receipt Serial: {receipt_serial}",
+            "actual": f"Returned Item Serial: {physical_serial}",
+            "passed": serial_match,
+            "status_badge": "Matched" if serial_match else "Serial Mismatch",
             "detail": (
-                f"Within {policy_window_days}-day window ({abs(window_variance_days)} days remaining)"
-                if within_policy_window
-                else f"Exceeded {policy_window_days}-day policy window by {window_variance_days} days"
+                f"Returned unit serial number ({physical_serial}) matches Original Store Receipt {claim.get('pos_receipt_no', '')}."
+                if serial_match
+                else f"MISMATCH: Receipt shows serial {receipt_serial}, but the item brought to the counter has serial {physical_serial}."
             ),
         },
         {
-            "check_id": "CHK-SERIAL",
-            "title": "POS Receipt vs. Physical Serial/Batch Match",
-            "expected": receipt_serial,
-            "actual": physical_serial,
-            "passed": serial_match and not tamper_detected,
+            "step_id": "STEP-2-WINDOW",
+            "step_title": "Check B: Store Return Window vs. 12-Month Warranty Period",
+            "expected": f"Within {store_window_days}-Day Store Refund Policy",
+            "actual": f"Bought {days_since_purchase} Days Ago (12-Mo Warranty: {'Active' if within_manufacturer_warranty else 'Expired'})",
+            "passed": within_store_window,
+            "status_badge": (
+                f"Within {store_window_days}-Day Return Window"
+                if within_store_window
+                else f"Past {store_window_days}-Day Window (Under 1-Yr Warranty)"
+            ),
             "detail": (
-                "Exact barcode & OCR serial/lot match verified on unit"
-                if (serial_match and not tamper_detected)
-                else "CRITICAL MISMATCH: Physical serial/lot or hygiene seal does not match POS receipt"
+                f"Purchased {days_since_purchase} days ago — qualifies for immediate store refund or exchange under the {store_window_days}-day store policy."
+                if within_store_window
+                else f"Purchased {days_since_purchase} days ago — past the {store_window_days}-day store cash refund window, but covered under the 365-day manufacturer warranty."
             ),
         },
         {
-            "check_id": "CHK-ABUSE",
-            "title": "Customer Return Velocity & Abuse Score",
-            "expected": "<= 2 Returns / 60d (Score < 40)",
-            "actual": f"{returns_60d} Returns / 60d (Score: {abuse_score}/100)",
-            "passed": abuse_score < 40,
-            "detail": (
-                f"Low return velocity ({lifetime_return_rate_pct}% lifetime return rate)"
-                if abuse_score < 40
-                else f"Elevated return frequency ({returns_60d} claims in 60 days, {lifetime_return_rate_pct}% rate)"
+            "step_id": "STEP-3-CONDITION",
+            "step_title": "Check C: Product Condition & Fault Inspection",
+            "expected": "Genuine Factory Fault (No Customer Physical Damage)",
+            "actual": claim.get("fault_summary", "Factory Fault Verified"),
+            "passed": genuine_defect_verified and not customer_physical_damage and serial_match,
+            "status_badge": (
+                "Genuine Factory Fault"
+                if (genuine_defect_verified and not customer_physical_damage and serial_match)
+                else ("Wrong Unit Returned" if not serial_match else "Customer Physical Damage")
             ),
-        },
-        {
-            "check_id": "CHK-RTV",
-            "title": "Upstream Supplier RTV Warranty Recovery",
-            "expected": f"KES {wholesale_cost_kes:,.2f} Covered",
-            "actual": f"KES {supplier_rtv_recovery_kes:,.2f} Recoverable",
-            "passed": supplier_rtv_eligible and supplier_rtv_recovery_kes > 0,
-            "detail": rtv_mechanism,
+            "detail": claim.get("condition_detail", claim.get("claimed_reason", "")),
         },
     ]
 
     enriched = copy.deepcopy(claim)
     enriched.update(
         {
-            "policy_window_days": policy_window_days,
+            "policy_window_days": store_window_days,
+            "manufacturer_warranty_days": warranty_days,
             "policy_name": policy["policy_name"],
-            "within_policy_window": within_policy_window,
-            "window_variance_days": window_variance_days,
+            "within_policy_window": within_store_window,
+            "within_manufacturer_warranty": within_manufacturer_warranty,
             "serial_match": serial_match,
-            "abuse_risk_score": abuse_score,
-            "abuse_tier": abuse_tier,
-            "recommended_disposition": recommended_disposition,
-            "disposition_label": disposition_label,
+            "decision_code": decision_code,
+            "decision_label": decision_label,
+            "decision_outcome": decision_outcome,
             "customer_refund_kes": customer_refund_kes,
-            " wholesale_cost_kes": wholesale_cost_kes,
-            "wholesale_cost_kes": wholesale_cost_kes,
-            "supplier_rtv_eligible": supplier_rtv_eligible,
-            "supplier_rtv_recovery_kes": supplier_rtv_recovery_kes,
-            "net_retailer_loss_kes": net_retailer_loss_kes,
-            "rtv_mechanism": rtv_mechanism,
-            "deterministic_checks": checks,
+            "supplier_credit_kes": supplier_credit_kes,
+            "saved_store_cash_kes": saved_store_cash_kes,
+            "supplier_coverage_status": supplier_coverage_status,
+            "counter_action_summary": counter_action_summary,
+            "verification_steps": verification_steps,
         }
     )
     return enriched
@@ -214,77 +187,65 @@ RAW_SEED_RETURNS: List[Dict[str, Any]] = [
         "store_branch": "Westlands Flagship Hypermarket (Nairobi)",
         "customer_name": "Dr. Amina Wanjiku Mwangi",
         "customer_id": "CUST-KE-10492",
-        "loyalty_tier": "Platinum Member (7 Years)",
+        "customer_phone": "+254 722 410 892",
         "sku": "VHP-REF-340L-INX",
-        "product_name": "Von Hotpoint 340L No-Frost Double Door Refrigerator (Inox)",
+        "product_name": "Von Hotpoint 340L Double Door Refrigerator",
         "category": "Major Appliances",
-        "supplier_name": "Hotpoint Appliances Kenya Ltd",
-        "supplier_vendor_code": "VND-HPK-001",
-        "supplier_warranty_terms": "24-Month Compressor & 30-Day Full DOA RTV Chargeback",
-        "pos_receipt_no": "POS-WL-2026-99104",
+        "supplier_name": "Hotpoint Appliances Kenya",
+        "supplier_warranty_terms": "30-Day Store Exchange & 12-Month Manufacturer Warranty",
+        "pos_receipt_no": "RCP-WL-2026-99104",
         "purchase_date": "2026-10-09",
         "days_since_purchase": 11,
         "policy_window_days": 30,
+        "manufacturer_warranty_days": 365,
         "receipt_serial": "VHP-340L-992841",
         "physical_serial": "VHP-340L-992841",
         "retail_price_kes": 89500.0,
-        "wholesale_cost_kes": 68500.0,
-        "customer_returns_60d": 0,
-        "customer_lifetime_return_rate_pct": 1.8,
-        "tamper_or_swap_detected": False,
+        "customer_physical_damage": False,
         "genuine_defect_verified": True,
-        "claimed_reason": "Inverter compressor fails to engage; freezer compartment warms to +14°C with error code E04.",
-        "visual_inspection_notes": [
-            "Factory serial plate VHP-340L-992841 intact and matches POS receipt POS-WL-2026-99104.",
-            "Bench diagnostic confirms factory inverter relay failure (0.0A compressor draw) with zero external denting.",
-            "All original packaging, glass shelves, and warranty card present.",
+        "fault_summary": "Compressor not cooling (Factory Fault)",
+        "claimed_reason": "Fridge compressor does not start cooling and shows error code E04 on the front display.",
+        "condition_detail": "No dents, scratches, or misuse. Factory compressor relay fault confirmed at the store counter with all original shelves and box included.",
+        "counter_inspection_notes": [
+            "Original Store Receipt RCP-WL-2026-99104 verified — bought 11 days ago (within 30-day store return policy).",
+            "Rear serial number plate VHP-340L-992841 matches the original store receipt.",
+            "Genuine factory compressor fault confirmed; eligible for immediate customer refund or replacement.",
         ],
-        "evidence_photos": [
-            {"label": "POS Receipt OCR Scan", "tag": "Receipt #POS-WL-2026-99104 (Verified)"},
-            {"label": "Rear Compressor Serial Plate", "tag": "S/N: VHP-340L-992841 (Exact Match)"},
-            {"label": "Digital Panel Diagnostic Code", "tag": "Fault Code E04 — Inverter Open Circuit"},
-        ],
-        "status": "PENDING_TRIAGE",
-        "rtv_claim_number": "RTV-HPK-2026-4401",
+        "status": "PENDING_REVIEW",
+        "approval_slip_no": "SLIP-HPK-2026-4401",
     },
     {
         "ret_id": "RET-2026-8411",
         "claim_date": "2026-10-20 09:15 EAT",
-        "store_branch": "Sarit Centre Electronics Hub (Nairobi)",
+        "store_branch": "Sarit Centre Electronics Store (Nairobi)",
         "customer_name": "Kevin Omondi Otieno",
         "customer_id": "CUST-KE-88310",
-        "loyalty_tier": "Standard Account (Flagged Velocity)",
+        "customer_phone": "+254 711 839 204",
         "sku": "SNY-WH1000XM5-BLK",
-        "product_name": "Sony WH-1000XM5 Wireless Noise-Canceling Headphones",
+        "product_name": "Sony WH-1000XM5 Wireless Headphones",
         "category": "Consumer Electronics",
-        "supplier_name": "Sony Middle East & Africa (Authorized Dist.)",
-        "supplier_vendor_code": "VND-SNY-014",
-        "supplier_warranty_terms": "14-Day Serial-Matched DOA Return (Strict Serial Audit Required)",
-        "pos_receipt_no": "POS-SR-2026-77412",
+        "supplier_name": "Sony East Africa Authorized Distributor",
+        "supplier_warranty_terms": "14-Day Store Return Policy (Requires Exact Serial Number Match)",
+        "pos_receipt_no": "RCP-SR-2026-77412",
         "purchase_date": "2026-10-14",
         "days_since_purchase": 6,
         "policy_window_days": 14,
-        "receipt_serial": "SNY-XM5-884120",
-        "physical_serial": "SNY-XM5-102944",
+        "manufacturer_warranty_days": 365,
+        "receipt_serial": "SNY-884120",
+        "physical_serial": "SNY-102944",
         "retail_price_kes": 54000.0,
-        "wholesale_cost_kes": 41200.0,
-        "customer_returns_60d": 9,
-        "customer_lifetime_return_rate_pct": 64.2,
-        "tamper_or_swap_detected": True,
+        "customer_physical_damage": False,
         "genuine_defect_verified": False,
-        "claimed_reason": "Right earcup driver dead out of the box; requesting immediate cash refund.",
-        "visual_inspection_notes": [
-            "ALERT: Box barcode shows S/N SNY-XM5-884120, but inner headband laser-etched serial reads SNY-XM5-102944 (2024 production batch).",
-            "Heavy earpad scuffing and third-party USB cable substituted inside new retail box.",
-            "Customer has completed 9 high-value electronics returns across 4 Nairobi branches in the past 60 days.",
+        "fault_summary": "Different old unit brought back on a new receipt",
+        "claimed_reason": "Customer claims right speaker is not working and asks for a cash refund.",
+        "condition_detail": "Receipt shows serial number SNY-884120, but the headphones inside the box have serial number SNY-102944 with heavy earpad wear.",
+        "counter_inspection_notes": [
+            "Serial Mismatch: Original Store Receipt lists S/N SNY-884120, but the physical headphone band reads S/N SNY-102944.",
+            "The returned unit is an older worn pair placed inside the new retail box.",
+            "Return must be rejected because the item does not match the unit sold on receipt RCP-SR-2026-77412.",
         ],
-        "evidence_photos": [
-            {"label": "POS Receipt & Retail Box Label", "tag": "Receipt S/N: SNY-XM5-884120"},
-            {"label": "Headband Laser Serial Macro", "tag": "Physical S/N: SNY-XM5-102944 (MISMATCH!)"},
-            {"label": "Hinge & Earpad Wear Macro", "tag": "Heavy Prior Wear & Heat-Gun Sticker Peel"},
-        ],
-        "status": "PENDING_TRIAGE",
-        "rtv_claim_number": "N/A-FRAUD-BLOCK",
+        "status": "PENDING_REVIEW",
+        "approval_slip_no": "SLIP-REJ-2026-4402",
     },
     {
         "ret_id": "RET-2026-8412",
@@ -292,77 +253,65 @@ RAW_SEED_RETURNS: List[Dict[str, Any]] = [
         "store_branch": "Karen Waterfront Megastore (Nairobi)",
         "customer_name": "Beatrice Muthoni Kariuki",
         "customer_id": "CUST-KE-39201",
-        "loyalty_tier": "Gold Member (3 Years)",
+        "customer_phone": "+254 733 501 920",
         "sku": "NTB-PRO-900W-CHP",
-        "product_name": "NutriBullet Pro 900W High-Speed Extractor Blender",
-        "category": "Small Domestic Appliances",
-        "supplier_name": "De'Longhi Kenwood East Africa Dist.",
-        "supplier_vendor_code": "VND-DLK-008",
-        "supplier_warranty_terms": "14-Day Retail Exchange; Days 15-365 Authorized Service Center Repair Only",
-        "pos_receipt_no": "POS-KW-2026-51029",
+        "product_name": "NutriBullet Pro 900W Blender",
+        "category": "Small Kitchen Appliances",
+        "supplier_name": "Kenwood & NutriBullet Service Center",
+        "supplier_warranty_terms": "14-Day Store Refund Window; 365-Day Free Manufacturer Warranty Repair",
+        "pos_receipt_no": "RCP-KW-2026-51029",
         "purchase_date": "2026-09-05",
         "days_since_purchase": 45,
         "policy_window_days": 14,
+        "manufacturer_warranty_days": 365,
         "receipt_serial": "NTB-900W-447102",
         "physical_serial": "NTB-900W-447102",
         "retail_price_kes": 18500.0,
-        "wholesale_cost_kes": 13600.0,
-        "customer_returns_60d": 2,
-        "customer_lifetime_return_rate_pct": 8.4,
-        "tamper_or_swap_detected": False,
+        "customer_physical_damage": False,
         "genuine_defect_verified": True,
-        "claimed_reason": "Extractor blade gasket leaking and motor clutch slipping after 6 weeks of daily use.",
-        "visual_inspection_notes": [
-            "Serial number NTB-900W-447102 matches POS receipt from 45 days ago (31 days past 14-day retail return window).",
-            "Motor base is covered under 12-month manufacturer service warranty, but ineligible for counter cash refund.",
-            "Recommended routing to De'Longhi Kenwood Authorized Service Center with zero store margin erosion.",
+        "fault_summary": "Motor overheating under normal use",
+        "claimed_reason": "Motor base smells warm and stops spinning after 6 weeks of normal home use.",
+        "condition_detail": "Bought 45 days ago (past the 14-day store refund policy), but well within the 365-day manufacturer warranty. Serial number matches receipt.",
+        "counter_inspection_notes": [
+            "Serial number NTB-900W-447102 matches Original Store Receipt RCP-KW-2026-51029.",
+            "Purchased 45 days ago — 31 days past the 14-day store cash refund policy.",
+            "Covered under the 12-month manufacturer warranty: book free warranty repair instead of paying cash from the store till.",
         ],
-        "evidence_photos": [
-            {"label": "POS Receipt Date Verification", "tag": "Purchased 2026-09-05 (45 Days Elapsed)"},
-            {"label": "Motor Base Serial Sticker", "tag": "S/N: NTB-900W-447102 (Verified Match)"},
-            {"label": "Extractor Clutch Gear Wear", "tag": "Eligible for Vendor Service Center Repair"},
-        ],
-        "status": "PENDING_TRIAGE",
-        "rtv_claim_number": "SRV-DLK-2026-1192",
+        "status": "PENDING_REVIEW",
+        "approval_slip_no": "SLIP-REP-2026-4403",
     },
     {
         "ret_id": "RET-2026-8413",
         "claim_date": "2026-10-20 10:05 EAT",
-        "store_branch": "Kilimani Express Supermarket (Nairobi)",
-        "customer_name": "Chef David Kiprop Sang",
+        "store_branch": "Kilimani Express Store (Nairobi)",
+        "customer_name": "David Kiprop Sang",
         "customer_id": "CUST-KE-55194",
-        "loyalty_tier": "Platinum B2B Hospitality Account",
-        "sku": "BSK-GRK-YOG-6KG",
-        "product_name": "Brookside Farm Fresh Greek Yogurt 1kg x 6 Catering Multipack",
-        "category": "Cold-Chain Perishables",
-        "supplier_name": "Brookside Dairy Limited (Ruiru Plant)",
-        "supplier_vendor_code": "VND-BSK-002",
-        "supplier_warranty_terms": "100% Cold-Chain Spoilage Debit Note within 7 Days of Purchase",
-        "pos_receipt_no": "POS-KL-2026-99812",
-        "purchase_date": "2026-10-19",
-        "days_since_purchase": 1,
-        "policy_window_days": 7,
-        "receipt_serial": "BSK-LOT-202604A",
-        "physical_serial": "BSK-LOT-202604A",
-        "retail_price_kes": 4650.0,
-        "wholesale_cost_kes": 3480.0,
-        "customer_returns_60d": 0,
-        "customer_lifetime_return_rate_pct": 0.6,
-        "tamper_or_swap_detected": False,
+        "customer_phone": "+254 720 618 441",
+        "sku": "SAM-MW32-DG-BLK",
+        "product_name": "Samsung 32L Digital Microwave Oven",
+        "category": "Small Kitchen Appliances",
+        "supplier_name": "Samsung Electronics East Africa",
+        "supplier_warranty_terms": "14-Day Store Exchange & 12-Month Manufacturer Warranty",
+        "pos_receipt_no": "RCP-KL-2026-99812",
+        "purchase_date": "2026-10-15",
+        "days_since_purchase": 5,
+        "policy_window_days": 14,
+        "manufacturer_warranty_days": 365,
+        "receipt_serial": "SAM-MW32-551920",
+        "physical_serial": "SAM-MW32-551920",
+        "retail_price_kes": 21500.0,
+        "customer_physical_damage": False,
         "genuine_defect_verified": True,
-        "claimed_reason": "Curdled texture and bloated foil lids upon opening 1 day after purchase despite 18 days remaining to expiry.",
-        "visual_inspection_notes": [
-            "Lot #BSK-LOT-202604A matches POS receipt and cold-chain receiving manifest from Truck #KDK-441Z.",
-            "Receiving IoT reefer log shows +11.4°C transit excursion during supplier delivery.",
-            "Eligible for immediate customer refund and 100% Supplier Quality Debit Note + aisle batch pull.",
+        "fault_summary": "Touch keypad not responding out of the box (Factory Fault)",
+        "claimed_reason": "Start and timer buttons on the front touch panel do not respond when pressed.",
+        "condition_detail": "Bought 5 days ago (within 14-day return policy). Serial number matches receipt, glass turntable intact, genuine factory keypad fault.",
+        "counter_inspection_notes": [
+            "Original Store Receipt RCP-KL-2026-99812 verified — purchased 5 days ago (within 14-day return window).",
+            "Rear serial sticker SAM-MW32-551920 matches receipt and box barcode.",
+            "Tested at counter plug point: power light turns on, but touch membrane is unresponsive out of the box.",
         ],
-        "evidence_photos": [
-            {"label": "POS Receipt & Lot Inkjet Scan", "tag": "Lot: BSK-LOT-202604A (1 Day Since Purchase)"},
-            {"label": "Foil Lid Bloating Inspection", "tag": "Confirmed Thermal Spoilage Before Expiry"},
-            {"label": "Reefer Transit Logger Printout", "tag": "+11.4°C Supplier Delivery Excursion"},
-        ],
-        "status": "PENDING_TRIAGE",
-        "rtv_claim_number": "DBN-BSK-2026-0884",
+        "status": "PENDING_REVIEW",
+        "approval_slip_no": "SLIP-SAM-2026-4404",
     },
     {
         "ret_id": "RET-2026-8414",
@@ -370,77 +319,65 @@ RAW_SEED_RETURNS: List[Dict[str, Any]] = [
         "store_branch": "Two Rivers Mall Flagship (Nairobi)",
         "customer_name": "Eng. Rajesh Patel",
         "customer_id": "CUST-KE-21908",
-        "loyalty_tier": "Platinum Member (5 Years)",
-        "sku": "LG-OLED55C3-4K",
-        "product_name": "LG 55-Inch OLED evo C3 4K Smart TV",
+        "customer_phone": "+254 734 991 102",
+        "sku": "LG-UHD55-4K-SMART",
+        "product_name": "LG 55-Inch 4K Smart TV",
         "category": "Consumer Electronics",
-        "supplier_name": "LG Electronics East Africa (Official Dist.)",
-        "supplier_vendor_code": "VND-LGE-003",
-        "supplier_warranty_terms": "14-Day DOA Panel Replacement & 100% Vendor RTV Credit Note",
-        "pos_receipt_no": "POS-TR-2026-66301",
+        "supplier_name": "LG Electronics East Africa",
+        "supplier_warranty_terms": "14-Day Store Replacement & 12-Month Manufacturer Warranty",
+        "pos_receipt_no": "RCP-TR-2026-66301",
         "purchase_date": "2026-10-17",
         "days_since_purchase": 3,
         "policy_window_days": 14,
-        "receipt_serial": "LG-OLED55-773190",
-        "physical_serial": "LG-OLED55-773190",
-        "retail_price_kes": 185000.0,
-        "wholesale_cost_kes": 142000.0,
-        "customer_returns_60d": 0,
-        "customer_lifetime_return_rate_pct": 1.1,
-        "tamper_or_swap_detected": False,
+        "manufacturer_warranty_days": 365,
+        "receipt_serial": "LG-TV55-773190",
+        "physical_serial": "LG-TV55-773190",
+        "retail_price_kes": 145000.0,
+        "customer_physical_damage": False,
         "genuine_defect_verified": True,
-        "claimed_reason": "Persistent green vertical pixel column across center of OLED panel upon initial wall-mount power-on.",
-        "visual_inspection_notes": [
-            "Chassis serial LG-OLED55-773190 and internal EDID firmware serial both match POS receipt POS-TR-2026-66301.",
-            "Zero glass impact or pressure marks; classic factory COF bonding defect verified on test bench.",
-            "Qualifies for immediate customer exchange/refund and 100% LG DOA RTV Credit Note.",
+        "fault_summary": "Vertical display line defect (Factory Panel Fault)",
+        "claimed_reason": "Green vertical line appears across the middle of the TV screen right after unboxing.",
+        "condition_detail": "Bought 3 days ago. Serial number LG-TV55-773190 matches receipt. Screen glass has zero cracks or impact marks.",
+        "counter_inspection_notes": [
+            "Original Store Receipt RCP-TR-2026-66301 verified — purchased 3 days ago (within 14-day store return policy).",
+            "TV back-cover serial number LG-TV55-773190 matches receipt and settings menu.",
+            "No external screen crack or drop marks; genuine factory display fault eligible for immediate exchange or refund.",
         ],
-        "evidence_photos": [
-            {"label": "POS Receipt & EDID Firmware Readout", "tag": "S/N: LG-OLED55-773190 (100% Verified)"},
-            {"label": "OLED Panel Power-On Test", "tag": "Vertical Green Subpixel Driver Fault (No Impact)"},
-            {"label": "Factory Protective Film & Box", "tag": "Original Packaging & Accessories Complete"},
-        ],
-        "status": "AUTHORIZED",
-        "rtv_claim_number": "RTV-LGE-2026-9012",
+        "status": "CONFIRMED",
+        "approval_slip_no": "SLIP-LGE-2026-4405",
     },
     {
         "ret_id": "RET-2026-8415",
         "claim_date": "2026-10-20 10:40 EAT",
-        "store_branch": "Junction Mall Pharmacy & Beauty Counter (Nairobi)",
+        "store_branch": "Junction Mall Electronics Counter (Nairobi)",
         "customer_name": "Sylvia Naliaka Wafula",
         "customer_id": "CUST-KE-77419",
-        "loyalty_tier": "Silver Member",
-        "sku": "LRP-EFF-DUO-KIT",
-        "product_name": "La Roche-Posay Effaclar Duo+ Dermocosmetic Regimen Kit",
-        "category": "Personal Care & Dermocosmetics",
-        "supplier_name": "L'Oréal East Africa Ltd",
-        "supplier_vendor_code": "VND-LOR-019",
-        "supplier_warranty_terms": "Unopened Tamper-Sealed Returns Within 7 Days Only; Opened Cosmetics Non-Returnable",
-        "pos_receipt_no": "POS-JM-2026-31088",
-        "purchase_date": "2026-10-11",
-        "days_since_purchase": 9,
-        "policy_window_days": 7,
-        "receipt_serial": "LRP-BATCH-7721",
-        "physical_serial": "LRP-BATCH-5109",
-        "retail_price_kes": 9800.0,
-        "wholesale_cost_kes": 6900.0,
-        "customer_returns_60d": 6,
-        "customer_lifetime_return_rate_pct": 48.0,
-        "tamper_or_swap_detected": True,
+        "customer_phone": "+254 712 309 775",
+        "sku": "HP-PAV15-I5-512",
+        "product_name": "HP Pavilion 15 Laptop",
+        "category": "Computers & Laptops",
+        "supplier_name": "HP East Africa Authorized Partner",
+        "supplier_warranty_terms": "14-Day Store Return Policy; 12-Month Warranty (Excludes Drops & Liquid Spills)",
+        "pos_receipt_no": "RCP-JM-2026-31088",
+        "purchase_date": "2026-10-01",
+        "days_since_purchase": 19,
+        "policy_window_days": 14,
+        "manufacturer_warranty_days": 365,
+        "receipt_serial": "HP-PAV15-339104",
+        "physical_serial": "HP-PAV15-339104",
+        "retail_price_kes": 60000.0,
+        "customer_physical_damage": True,
         "genuine_defect_verified": False,
-        "claimed_reason": "Claimed allergic reaction and requested full cash refund.",
-        "visual_inspection_notes": [
-            "Holographic hygiene seal torn open; inner tube crimp bears Lot #LRP-BATCH-5109 whereas outer carton & receipt show #LRP-BATCH-7721.",
-            "Tube weight is 42% lighter than factory spec and filled with generic lotion.",
-            "Submitted 9 days after purchase (past 7-day personal care window) with 6 prior beauty returns in 60 days.",
+        "fault_summary": "Cracked screen & liquid spill on keyboard (Customer Physical Damage)",
+        "claimed_reason": "Customer states laptop stopped turning on and requests a replacement unit.",
+        "condition_detail": "Serial number matches receipt, but inspection shows a cracked top-left LCD corner, dented hinge, and sticky coffee residue under the keyboard.",
+        "counter_inspection_notes": [
+            "Serial number HP-PAV15-339104 matches Original Store Receipt RCP-JM-2026-31088 (bought 19 days ago).",
+            "Physical inspection reveals impact crack on LCD screen and liquid spill corrosion on keyboard tray.",
+            "Accidental customer damage is not covered by the store return policy or standard manufacturer warranty — reject return.",
         ],
-        "evidence_photos": [
-            {"label": "Carton vs Tube Crimp Lot Macro", "tag": "Carton #7721 vs Tube #5109 (MISMATCH)"},
-            {"label": "Broken Holographic Hygiene Seal", "tag": "Tamper Evidence & Diluted Product Weight"},
-            {"label": "Customer Return Velocity Profile", "tag": "6 Beauty Returns in 60 Days (Score 89/100)"},
-        ],
-        "status": "PENDING_TRIAGE",
-        "rtv_claim_number": "N/A-HYGIENE-REJECT",
+        "status": "PENDING_REVIEW",
+        "approval_slip_no": "SLIP-REJ-2026-4406",
     },
 ]
 

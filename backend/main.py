@@ -344,7 +344,7 @@ def ask_returns_assistant(payload: AgentAskPayload) -> Dict[str, Any]:
         answer_text = (response.text or "").strip()
         if not answer_text:
             answer_text = fallback_answer
-        return {"answer": answer_text, "model": "gemini-2.5-flash"}
+        return {"answer": answer_text, "model": "Enterprise Operations Reasoning Engine"}
     except Exception:
         return {"answer": fallback_answer, "model": "store-warranty-verifier"}
 

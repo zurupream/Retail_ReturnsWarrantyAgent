@@ -1,34 +1,164 @@
 @import "tailwindcss";
 
-@layer base {
-  html, body {
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    letter-spacing: -0.011em;
-    background-color: #F5F5F7;
-    color: #1D1D1F;
+:root,
+:root[data-theme="sand"] {
+  --bg-canvas: #F7F5F0;
+  --bg-sidebar: #EFECE6;
+  --bg-card: #FFFFFF;
+  --text-primary: #1E1B18;
+  --text-muted: #78716C;
+  --border-subtle: rgba(0, 0, 0, 0.07);
+  color-scheme: light;
+}
+
+:root[data-theme="daylight"] {
+  --bg-canvas: #F5F5F7;
+  --bg-sidebar: #EBEBED;
+  --bg-card: #FFFFFF;
+  --text-primary: #1D1D1F;
+  --text-muted: #6E6E73;
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  color-scheme: light;
+}
+
+:root[data-theme="dusk"] {
+  --bg-canvas: #1C1E26;
+  --bg-sidebar: #16181F;
+  --bg-card: #242834;
+  --text-primary: #E2E8F0;
+  --text-muted: #94A3B8;
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  color-scheme: dark;
+}
+
+:root[data-theme="midnight"] {
+  --bg-canvas: #0B0C10;
+  --bg-sidebar: #12141C;
+  --bg-card: #161923;
+  --text-primary: #F8FAFC;
+  --text-muted: #64748B;
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  color-scheme: dark;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", system-ui, sans-serif;
+  background-color: var(--bg-canvas);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  margin: 0;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.font-mono-num {
+  font-variant-numeric: tabular-nums;
+  font-family: "SF Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+@media not print {
+  /* Canvas surfaces */
+  .bg-\[\#F5F5F7\],
+  .bg-slate-50,
+  .bg-gray-50 {
+    background-color: var(--bg-canvas) !important;
   }
-}
 
-.apple-card {
-  background-color: #FFFFFF;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
-}
+  /* Sidebar / Sub-panel surfaces */
+  .bg-slate-100,
+  .bg-gray-100,
+  .bg-slate-50\/50,
+  .bg-slate-50\/60,
+  .bg-slate-50\/70,
+  .bg-slate-50\/80,
+  .bg-gray-50\/50,
+  .bg-gray-50\/60,
+  .bg-gray-50\/70,
+  .bg-gray-50\/80,
+  .bg-\[\#F5F5F7\]\/60,
+  .bg-\[\#F5F5F7\]\/80 {
+    background-color: var(--bg-sidebar) !important;
+  }
 
-.apple-glass {
-  background-color: rgba(255, 255, 255, 0.85);
-  backdrop-filter: saturate(180%) blur(20px);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  /* Card & Header surfaces */
+  .bg-white,
+  .bg-white\/95,
+  .bg-white\/90,
+  .bg-white\/85,
+  .bg-white\/80 {
+    background-color: var(--bg-card) !important;
+  }
+
+  /* Primary text */
+  .text-\[\#1D1D1F\],
+  .text-slate-900,
+  .text-slate-800,
+  .text-gray-900,
+  .text-gray-800 {
+    color: var(--text-primary) !important;
+  }
+
+  /* Secondary / Muted text */
+  .text-\[\#6E6E73\],
+  .text-slate-700,
+  .text-slate-600,
+  .text-slate-500,
+  .text-slate-400,
+  .text-gray-700,
+  .text-gray-600,
+  .text-gray-500,
+  .text-gray-400 {
+    color: var(--text-muted) !important;
+  }
+
+  /* Borders & Dividers */
+  .border-black\/\[0\.08\],
+  .border-black\/\[0\.06\],
+  .border-slate-200,
+  .border-slate-200\/80,
+  .border-slate-100,
+  .border-slate-300,
+  .border-gray-200,
+  .border-gray-200\/80,
+  .border-gray-100,
+  .border-gray-300 {
+    border-color: var(--border-subtle) !important;
+  }
+
+  .divide-slate-100 > :not(:last-child),
+  .divide-slate-200 > :not(:last-child),
+  .divide-gray-100 > :not(:last-child),
+  .divide-gray-200 > :not(:last-child) {
+    border-color: var(--border-subtle) !important;
+  }
+
+  /* Dark mode adjustments for form controls and tinted badges */
+  :root.dark input:not([type="checkbox"]):not([type="radio"]),
+  :root.dark select,
+  :root.dark textarea {
+    background-color: var(--bg-sidebar) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-subtle) !important;
+  }
+
+  :root.dark .hover\:bg-slate-50:hover,
+  :root.dark .hover\:bg-slate-100:hover,
+  :root.dark .hover\:bg-gray-50:hover,
+  :root.dark .hover\:bg-gray-100:hover {
+    background-color: var(--bg-sidebar) !important;
+  }
 }
 
 @media print {
+  body {
+    background: #FFFFFF !important;
+    color: #000000 !important;
+  }
   .no-print {
     display: none !important;
   }
-  body {
-    background-color: #FFFFFF !important;
+  .print-card {
+    box-shadow: none !important;
+    border: 1px solid #D1D5DB !important;
+    break-inside: avoid;
   }
 }

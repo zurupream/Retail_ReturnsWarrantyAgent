@@ -21,6 +21,7 @@ import {
   Wrench
 } from 'lucide-react';
 import SignInPage from './components/SignInPage';
+import ThemeSwitcher from './components/ThemeSwitcher';
 
 const STORAGE_KEY = 'retail_returns_warranty_agent_user_v2';
 
@@ -61,7 +62,7 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState([
     {
       role: 'assistant',
-      model: 'gemini-2.5-flash',
+      model: 'Enterprise Operations Reasoning Engine',
       text: 'Welcome to the Returns & Warranty AI Assistant. Select any customer return and ask me to explain the receipt check, store return window, 12-month warranty coverage, or the recommended counter decision.',
     },
   ]);
@@ -186,7 +187,7 @@ export default function App() {
         ...prev,
         {
           role: 'assistant',
-          model: data.model || 'gemini-2.5-flash',
+          model: data.model || 'Enterprise Operations Reasoning Engine',
           text: data.answer || 'No response generated.',
         },
       ]);
@@ -241,6 +242,7 @@ export default function App() {
             </div>
             <div>
               <div className="flex items-center gap-2">
+            <ThemeSwitcher />
                 <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200">
                   Agent #11 • Store Customer Returns
                 </span>

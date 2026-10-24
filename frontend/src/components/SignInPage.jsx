@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import ThemeSwitcher from './ThemeSwitcher';
 import {
   ShieldCheck,
   ScanBarcode,
@@ -163,6 +164,7 @@ export default function SignInPage({ onSignIn }) {
       <header className="border-b border-slate-200/80 bg-white/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-sm">
               <RefreshCw className="w-5 h-5" />
             </div>
@@ -183,6 +185,8 @@ export default function SignInPage({ onSignIn }) {
           <div className="hidden md:flex items-center gap-2 text-xs font-medium text-slate-600 bg-slate-100 px-3.5 py-1.5 rounded-full">
             <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
             <span>Receipt Match • Return Window • 12-Month Warranty Verification</span>
+          </div>
+            <ThemeSwitcher />
           </div>
         </div>
       </header>
